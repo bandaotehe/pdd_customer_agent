@@ -1,0 +1,87 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.pyw
+*.pyz
+*.pywz
+*.exe
+*.spec
+!scripts/*.spec
+browser_data/*
+*.log
+examples/
+logs/
+dist
+build
+.venv
+user_data/
+*.db
+*.db
+config.json
+temp/
+.claude/
+
+# Backup directories
+backup/
+*.backup
+.bak/
+
+# Serena project files
+.serena/
+
+# Temporary and cache files
+temp/
+tmp/
+*.tmp
+*.temp
+test/
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+.DS_Store
+.spec-workflow/
+chroma_db/
+CLAUDE.md
+# CI/CD (not published to this mirror)
+.github/
+
+
+# 构建产物
+build/
+*.exe
+*.pkg
+*.dmg
+*.msi
+
+# 浏览器二进制文件（Chromium 等）
+browsers/
+chrome.dll
+chrome.exe
+*.dll
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# 日志文件
+*.log

@@ -1,0 +1,25 @@
+{
+  "reconnect": {
+    "max_attempts": 5,
+    "initial_delay": 2.0,
+    "max_delay": 60.0,
+    "backoff_factor": 2.0,
+    "enable_auto_reconnect": true
+  },
+  "heartbeat": {
+    "enable_heartbeat": false,
+    "heartbeat_interval": 60.0,
+    "heartbeat_timeout": 15.0,
+    "health_check_interval": 90.0,
+    "max_heartbeat_failures": 3
+  },
+  "monitoring": {
+    "enabled": true,
+    "status_update_interval": 30.0
+  },
+  "logging": {
+    "enable_debug_logs": true,
+    "log_reconnect_attempts": true,
+    "log_heartbeat": false
+  }
+}
