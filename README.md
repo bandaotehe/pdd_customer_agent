@@ -172,7 +172,7 @@ Agent 循环流程：
 
 下载完整压缩包，解压后直接运行，无需安装 Python 或任何配置：
 
-> **[下载完整压缩包]()** ← 链接待补充
+> **下载完整压缩包**：[百度网盘 - AgentCustomer.zip](https://pan.baidu.com/s/1t4As2ODLnun08vgIygc3kQ?pwd=tnds)（提取码：tnds）
 
 解压后双击 `AgentCustomer.exe` 即可启动。压缩包已内置 Python 运行时、Playwright 浏览器、默认配置，开箱即用。
 
