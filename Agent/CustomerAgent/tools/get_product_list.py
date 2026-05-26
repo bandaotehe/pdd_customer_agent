@@ -17,6 +17,7 @@ class GetShopProductsParams(BaseModel):
     """获取商品列表参数（由 dependencies 自动注入）"""
     shop_id: Optional[Union[str, int]] = Field(default=None, description="店铺ID")
     user_id: Optional[Union[str, int]] = Field(default=None, description="用户ID（账号ID）")
+    page: int = Field(default=1, description="页码，从1开始，默认第1页")
 
 
 @agent_tool(
@@ -39,8 +40,9 @@ def get_shop_products(params: GetShopProductsParams) -> str:
         product_manager = ProductManager(shop_id=params.shop_id, user_id=params.user_id)
 
         # 调用API获取商品列表
+        page = params.page if params.page else 1
         result = product_manager.get_product_list(
-            page=1,
+            page=page,
             size=50
         )
 
@@ -52,8 +54,8 @@ def get_shop_products(params: GetShopProductsParams) -> str:
                 logger.info(f"获取商品列表完成，但店铺当前暂无商品 (shop_id: {params.shop_id})")
                 return f"店铺当前暂无商品 (shop_id: {params.shop_id})"
 
-            logger.info(f"获取商品列表成功: shop_id={params.shop_id}, total={total}, returned={len(products)}")
-            return _format_products_output(products, total, page=1)
+            logger.info(f"获取商品列表成功: shop_id={params.shop_id}, total={total}, page={page}, returned={len(products)}")
+            return _format_products_output(products, total, page=page)
 
         else:
             error_msg = result.get("error_msg", "未知错误")

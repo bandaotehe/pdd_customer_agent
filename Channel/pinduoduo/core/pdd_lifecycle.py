@@ -149,7 +149,6 @@ class LifecycleMixin:
                     self.logger.error(f"WebSocket连接异常: {shop_id}-{username}")
 
                 self.status_manager.update_status(shop_id, user_id, username, ConnectionState.CONNECTED)
-                self.logger.debug(f"暂时跳过在线状态设置: {shop_id}-{username}")
 
                 on_success()
 
@@ -272,6 +271,7 @@ class LifecycleMixin:
         """心跳检查循环"""
         connection_key = f"{shop_id}_{user_id}"
         consecutive_failures = 0
+        heartbeat_count = 0
 
         try:
             while not (self._stop_event and self._stop_event.is_set()):
@@ -281,7 +281,8 @@ class LifecycleMixin:
                     response_time = time.time() - start_time
 
                     consecutive_failures = 0
-                    self.logger.debug(f"心跳成功: {shop_id}-{username}, 响应时间: {response_time:.3f}s")
+                    heartbeat_count += 1
+                    self.logger.debug(f"心跳成功: {shop_id}-{username}, 响应时间: {response_time:.3f}s (第{heartbeat_count}次)")
 
                     status = self.status_manager.get_status(shop_id, user_id)
                     if status and status.state == ConnectionState.CONNECTED:

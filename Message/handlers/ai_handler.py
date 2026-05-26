@@ -146,10 +146,10 @@ class AIReplyHandler(BaseHandler):
                 await self._trigger_transfer(context)
                 return True
 
-            self.logger.info(f"[AI] 生成回复: {str(reply)[:60]}")
+            self.logger.info(f"[AI] 生成回复: {reply}")
             success = await self._send_reply(context, reply, metadata)
             if success:
-                await self.log_message(context, "AI回复发送成功", f"回复: {reply}...")
+                await self.log_message(context, "AI回复发送成功", f"回复: {reply}")
                 try:
                     session_id, shop_id = self._build_session_id(context)
                     if session_id:

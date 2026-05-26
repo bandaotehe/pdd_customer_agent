@@ -86,9 +86,15 @@ class MessageBuilder:
 
 你有 6 个工具可以调用。工具参数中 shop_id / user_id 等必须使用下方「当前会话信息」中给出的值。
 
-### 1. get_product_knowledge — 查商品知识
-当用户询问某个具体商品的信息（成分、功效、用法、规格、价格等）时调用。
-- goods_id：商品 ID（使用商品列表中「商品ID」标签后面的大数字）
+### 1. get_product_knowledge — 查商品知识（支持精确查 + 模糊搜）
+当用户询问具体商品信息（成分、功效、用法、规格、价格等）时调用。
+
+**两种用法：**
+- 已知 goods_id → 传 goods_id=商品ID 精确查询
+- 未知 goods_id，用户描述了商品特征/名称 → 传 query=关键词模糊搜索（如用户问「有没有补水的」「XX成分的护肤品」→ query="补水" 或 query="XX成分"）
+
+⚠️ 当用户问题涉及商品但当前会话信息的 goods_id 为空时，优先用 query 模糊搜，不要传 goods_id=0 或随意猜测 goods_id。
+- query：从用户原话提炼核心商品词（品牌、功效、品类等）
 - shop_id：店铺 ID
 
 ### 2. search_customer_service_knowledge — 搜知识库
@@ -101,10 +107,11 @@ class MessageBuilder:
 - query：搜索关键词（如用户问"药怎么吃"→query="服用方法"）
 - shop_id：店铺 ID
 
-### 3. get_shop_products — 获取商品列表
+### 3. get_shop_products — 获取商品列表（支持翻页）
 当用户要求看更多商品、翻页浏览，或需要查找某个特定商品时调用。
 - shop_id：店铺 ID
 - user_id：账号 ID
+- page：页码（从 1 开始，默认第 1 页，每页 50 个商品）
 
 ### 4. send_goods_link — 发送商品卡片
 用户明确要求发送商品链接或让你推荐时调用，向用户推送商品卡片。
@@ -129,7 +136,10 @@ class MessageBuilder:
 
 ## 决策优先级
 
-1. 用户问正常商品问题（成分、功效、规格、价格等）→ 用 get_product_knowledge 查商品知识库直接回答。
+1. 用户问正常商品问题（成分、功效、规格、价格等）→ 优先用 get_product_knowledge：
+   a) 如果会话信息中有 goods_id → 传 goods_id 精确查询
+   b) 如果没有 goods_id → 传 query 关键词模糊搜索（从用户原话提炼核心词）
+   c) 查不到时再尝试 get_shop_products 浏览商品列表
 
 2. 用户问「怎么吃」「怎么服用」「一次吃多少」「能不能和XX一起吃」等涉及用药/用法/用量/禁忌的问题 → 按以下顺序处理：
    a) 先用 get_product_knowledge 查商品知识库（可能含说明书、医嘱等信息）
@@ -141,7 +151,7 @@ class MessageBuilder:
 
 4. 知识库有信息 → 用自然的语气转述知识库内容，严禁自行发挥、曲解或补充，但也要避免照搬原文造成机翻感；知识库无信息 → 凭经验回答或建议查看商品详情
 
-5. 用户要求推荐商品 → 从商品列表中挑选 1-2 款介绍亮点，让用户自行判断是否需要发送卡片
+5. 用户要求推荐商品 → 先用 get_product_knowledge(query=关键词) 搜索符合条件的商品，再从结果中挑 1-2 款介绍亮点，让用户自行判断是否需要发送卡片。若搜索无结果可尝试 get_shop_products 翻页浏览
 
 6. 用户涉及售后问题（退换货、退款、投诉、物流异常、质量问题、订单纠纷等）或明确要求转人工 → 先自然回复一句安抚用户（如「亲，这个我帮您转给售后专员处理哈」），再调用 transfer_conversation 转接（工作时间 8:00-23:00）。⚠️ 禁止说「转人工客服」，要说「转售后专员」「找售后同事」等，像真人同事间转接一样自然
 
@@ -238,7 +248,7 @@ class MessageBuilder:
 
     def _inject_product_list(self, dependencies: Dict[str, Any]) -> None:
         """
-        动态获取商品列表并注入到 dependencies
+        动态获取商品列表并注入到 dependencies（精简版，引导 LLM 用工具搜索）
         """
         if not dependencies.get("shop_id") or not dependencies.get("user_id"):
             return
@@ -249,13 +259,24 @@ class MessageBuilder:
                 user_id=dependencies["user_id"]
             )
             product_list_text = get_shop_products(params)
-            product_list_text += "\n注：以上仅展示第一页商品，如果用户需要查看更多商品，请调用 get_shop_products 工具获取更多。"
-            dependencies["product_list"] = product_list_text
-            # 提取原始商品数据，用于无 goods_id 时的匹配
-            dependencies["_raw_products"] = self._parse_products_from_text(product_list_text)
+
+            # 解析商品数据
+            raw_products = self._parse_products_from_text(product_list_text)
+            total = len(raw_products)
+
+            # 构造精简摘要：总数 + 紧凑的商品列表（仅名称和ID）
+            summary = f"店铺共有 {total} 个商品（仅展示第一页）：\n"
+            for p in raw_products[:30]:  # 最多展示 30 个
+                summary += f"  {p['goods_name']}（ID: {p['goods_id']}）\n"
+            if total > 30:
+                summary += f"  ...等 {total} 个商品\n"
+            summary += "注：以上仅第一页。用户问具体商品时请用 get_product_knowledge(query=关键词) 搜索，或用 get_shop_products 翻页浏览。"
+
+            dependencies["product_list"] = summary
+            dependencies["_raw_products"] = raw_products
         except Exception as e:
             logger.warning(f"动态获取商品列表失败: {e}")
-            dependencies["product_list"] = "获取商品列表失败"
+            dependencies["product_list"] = "获取商品列表失败，请用 get_product_knowledge(query=关键词) 搜索商品。"
             dependencies["_raw_products"] = []
 
     def build_messages(

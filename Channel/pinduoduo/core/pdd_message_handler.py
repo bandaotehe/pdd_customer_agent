@@ -131,7 +131,9 @@ class MessageHandlerMixin:
                 if isinstance(auth_info, dict):
                     result = auth_info.get('result')
                     if result == 'ok':
-                        self.logger.info(f"{username}认证成功")
+                        status = auth_info.get('status', '?')
+                        chat_perm = auth_info.get('chat_permission', False)
+                        self.logger.info(f"{username}认证成功 (status={status}, chat_permission={chat_perm})")
                     else:
                         self.logger.warning(f"{username}认证失败")
 
