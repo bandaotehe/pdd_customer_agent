@@ -9,10 +9,6 @@ from typing import Any, Dict, List, Optional
 
 from bridge.context import Context
 from utils.logger_loguru import get_logger
-from Agent.CustomerAgent.tools.get_product_list import (
-    get_shop_products,
-    GetShopProductsParams,
-)
 
 logger = get_logger("MessageBuilder")
 
@@ -70,9 +66,6 @@ class MessageBuilder:
 亲，这个可不能吃呀～一次性浴巾是用于擦干身体、清洁用的，不是食品哦！请一定注意使用用途哈，安全第一呢😊
 这种就是错误回复，因为含有emoji 表情，并且出现～这种语气后缀，你只需要语气和善的回答用户的消息，正确回复：
 亲亲，这个可不能吃哦，一次性浴巾是用于擦干身体、清洁用的，不是食品哦，请一定注意使用用途哈，安全第一呢
-
-## 当前店铺商品
-{product_list}
 """
         parts.append(persona)
 
@@ -200,85 +193,6 @@ class MessageBuilder:
             "media_urls": getattr(context, "media_urls", []) or [],
         }
 
-    @staticmethod
-    def _parse_products_from_text(product_text: str) -> list[dict]:
-        """从格式化的商品列表文本中提取原始商品数据"""
-        import re
-        products = []
-        # 匹配模式：商品名称: xxx\n商品ID: xxx\n价格: xxx 元
-        pattern = re.compile(
-            r'商品名称:\s*(.+?)\n商品ID:\s*(\d+)\n(?:价格:\s*(.+?)\s*元?\n)?',
-            re.MULTILINE
-        )
-        for m in pattern.finditer(product_text):
-            name = m.group(1).strip()
-            gid = m.group(2).strip()
-            price = (m.group(3) or "").strip()
-            products.append({"goods_id": gid, "goods_name": name, "price": price})
-        return products
-
-    @staticmethod
-    def _match_product_by_keywords(query: str, products: list[dict]) -> dict | None:
-        """用 jieba 分词匹配最相关的商品，返回 {goods_id, goods_name, price} 或 None"""
-        import jieba
-        query_lower = query.lower()
-        # 提取查询中的关键词（过滤单字和常见停用词）
-        stop_words = {"的", "了", "是", "我", "你", "这", "那", "怎么", "什么", "多少", "一下", "这个", "那个"}
-        keywords = [w for w in jieba.cut(query) if len(w) > 1 and w not in stop_words]
-
-        best_score = 0
-        best_product = None
-        for p in products:
-            name_lower = p["goods_name"].lower()
-            score = 0
-            for kw in keywords:
-                if kw in name_lower:
-                    score += len(kw)  # 匹配字符越长权重越高
-            # 额外加分：完整匹配
-            if query_lower in name_lower:
-                score += 10
-            if score > best_score:
-                best_score = score
-                best_product = p
-
-        if best_score >= 2 and best_product:
-            logger.info(f"关键词匹配到商品: query={query} → {best_product['goods_name']} (id={best_product['goods_id']}, score={best_score})")
-            return best_product
-        return None
-
-    def _inject_product_list(self, dependencies: Dict[str, Any]) -> None:
-        """
-        动态获取商品列表并注入到 dependencies（精简版，引导 LLM 用工具搜索）
-        """
-        if not dependencies.get("shop_id") or not dependencies.get("user_id"):
-            return
-
-        try:
-            params = GetShopProductsParams(
-                shop_id=dependencies["shop_id"],
-                user_id=dependencies["user_id"]
-            )
-            product_list_text = get_shop_products(params)
-
-            # 解析商品数据
-            raw_products = self._parse_products_from_text(product_list_text)
-            total = len(raw_products)
-
-            # 构造精简摘要：总数 + 紧凑的商品列表（仅名称和ID）
-            summary = f"店铺共有 {total} 个商品（仅展示第一页）：\n"
-            for p in raw_products[:30]:  # 最多展示 30 个
-                summary += f"  {p['goods_name']}（ID: {p['goods_id']}）\n"
-            if total > 30:
-                summary += f"  ...等 {total} 个商品\n"
-            summary += "注：以上仅第一页。用户问具体商品时请用 get_product_knowledge(query=关键词) 搜索，或用 get_shop_products 翻页浏览。"
-
-            dependencies["product_list"] = summary
-            dependencies["_raw_products"] = raw_products
-        except Exception as e:
-            logger.warning(f"动态获取商品列表失败: {e}")
-            dependencies["product_list"] = "获取商品列表失败，请用 get_product_knowledge(query=关键词) 搜索商品。"
-            dependencies["_raw_products"] = []
-
     def build_messages(
         self,
         query: str,
@@ -302,10 +216,9 @@ class MessageBuilder:
         if self.system_prompt:
             content = self.system_prompt
             if dependencies:
-                # 动态获取商品列表并注入到 dependencies
-                self._inject_product_list(dependencies)
-
                 for key, value in dependencies.items():
+                    if key.startswith("_"):
+                        continue
                     content = content.replace(f"{{{key}}}", str(value))
 
                 # 动态构建会话信息，告诉 LLM 各字段的值
@@ -318,28 +231,14 @@ class MessageBuilder:
                 goods_id = dependencies.get('goods_id', '')
                 goods_name = dependencies.get('goods_name', '')
                 goods_price = dependencies.get('goods_price', '')
-                # 如果 PDD 没带 goods_id，尝试从产品列表自动匹配
-                if not goods_id:
-                    raw_products = dependencies.get('_raw_products', [])
-                    if raw_products:
-                        matched = self._match_product_by_keywords(query, raw_products)
-                        if matched:
-                            goods_id = matched["goods_id"]
-                            goods_name = matched["goods_name"]
-                            goods_price = matched.get("price", "")
-                            dependencies["goods_id"] = goods_id
-                            dependencies["goods_name"] = goods_name
-                            dependencies["goods_price"] = goods_price
                 if goods_id:
                     product_line = f"- goods_id: {goods_id}"
                     if goods_name:
                         product_line += f" | 商品名称: {goods_name}"
                     if goods_price:
                         product_line += f" | 价格: {goods_price}"
-                    product_line += "（系统已自动匹配到该商品，如用户问及该商品相关问题，优先用此goods_id调用 get_product_knowledge）\n"
+                    product_line += "（用户当前浏览的商品，如用户问及该商品相关问题，优先用此goods_id调用 get_product_knowledge）\n"
                     session_info += product_line
-                else:
-                    session_info += "- 注意：未匹配到具体商品，如用户问题涉及具体商品，请通过 get_shop_products 确认\n"
                 session_info += "\n【重要】调用工具时，shop_id、user_id 等参数必须使用上面【当前会话信息】中给出的值！"
                 content += session_info
 

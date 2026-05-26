@@ -436,20 +436,29 @@ def _upgrade_knowledge_service(container: 'DIContainer'):
     from services.reranker_service import RerankerService
     from services.vector_index_sync import VectorIndexSync
 
+    from database.knowledge_service import logger as ks_logger
     ks = container.get(KnowledgeService)
     try:
         ks.hybrid_retriever = container.get(HybridRetriever)
-    except Exception:
-        pass
+    except Exception as e:
+        ks_logger.warning(f"HybridRetriever 注入失败: {e}")
     try:
         ks.reranker_service = container.get(RerankerService)
-    except Exception:
-        pass
+    except Exception as e:
+        ks_logger.warning(f"RerankerService 注入失败: {e}")
     try:
         ks.vector_index_sync = container.get(VectorIndexSync)
         ks.vector_index_sync.set_knowledge_service(ks)
-    except Exception:
-        pass
+    except Exception as e:
+        ks_logger.warning(f"VectorIndexSync 注入失败: {e}")
+
+    # 注入后重新诊断
+    if ks.hybrid_retriever and ks.reranker_service:
+        ks_logger.info("KnowledgeService 已就绪 [模式: 混合检索(向量+BM25+RRF) + 重排序]")
+    elif ks.hybrid_retriever:
+        ks_logger.info("KnowledgeService 已就绪 [模式: 混合检索(向量+BM25+RRF), 无重排序]")
+    else:
+        ks_logger.warning("KnowledgeService 运行在传统检索模式(jieba+SQL LIKE)，向量检索不可用")
 
 
 def configure_standard_services(config_instance: Any = None) -> 'DIContainer':

@@ -19,11 +19,11 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTextEdit, QCheckBox, QProgressBar, QFrame, QFileDialog,
     QSpinBox, QGroupBox, QSlider
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QThread
+from PyQt6.QtCore import Qt, pyqtSignal, QThread, QTimer
 from qfluentwidgets import (
     PrimaryPushButton, PushButton,
     InfoBar, InfoBarPosition, TableWidget, SegmentedWidget,
-    ComboBox, FluentIcon as FIF,
+    ComboBox, FluentIcon as FIF, LineEdit,
 )
 
 from core.di_container import container
@@ -711,6 +711,11 @@ class KnowledgeUI(QWidget):
 
         # 顶部工具栏
         toolbar = QHBoxLayout()
+        # 搜索框
+        self.product_search_input = LineEdit()
+        self.product_search_input.setPlaceholderText("搜索商品名称或ID...")
+        self.product_search_input.setFixedWidth(220)
+        self.product_search_input.textChanged.connect(self._on_product_search_changed)
         self.sync_btn = PrimaryPushButton("同步产品知识")
         self.sync_btn.clicked.connect(self._on_sync_clicked)
         self.add_product_btn = PushButton("添加产品知识")
@@ -720,6 +725,7 @@ class KnowledgeUI(QWidget):
         self.clear_btn = PushButton("清空全部")
         self.clear_btn.clicked.connect(self._on_clear_clicked)
 
+        toolbar.addWidget(self.product_search_input)
         toolbar.addWidget(self.sync_btn)
         toolbar.addWidget(self.add_product_btn)
         toolbar.addWidget(self.product_import_btn)
@@ -767,6 +773,12 @@ class KnowledgeUI(QWidget):
 
         # 顶部工具栏
         toolbar = QHBoxLayout()
+        # 搜索框
+        self.cs_search_input = LineEdit()
+        self.cs_search_input.setPlaceholderText("搜索标题或内容...")
+        self.cs_search_input.setFixedWidth(220)
+        self.cs_search_input.textChanged.connect(self._on_cs_search_changed)
+
         self.add_cs_btn = PrimaryPushButton("添加客服知识")
         self.add_cs_btn.clicked.connect(self._on_add_cs_clicked)
 
@@ -779,6 +791,7 @@ class KnowledgeUI(QWidget):
         self.batch_import_btn = PushButton("批量导入")
         self.batch_import_btn.clicked.connect(self._on_batch_import_clicked)
 
+        toolbar.addWidget(self.cs_search_input)
         toolbar.addWidget(self.add_cs_btn)
         toolbar.addWidget(self.batch_import_btn)
         toolbar.addStretch()
@@ -804,12 +817,24 @@ class KnowledgeUI(QWidget):
         self.cs_table.verticalHeader().setDefaultSectionSize(50)  # 设置默认行高
         layout.addWidget(self.cs_table)
 
+    def _on_product_search_changed(self):
+        """产品搜索框文本变化"""
+        self._refresh_product_table()
+
     def _refresh_product_table(self):
         """刷新产品知识表格"""
         if self.current_shop_id is None:
             return
 
         products = self.knowledge_service.list_products_by_shop(self.current_shop_id)
+
+        # 搜索过滤
+        if hasattr(self, 'product_search_input'):
+            q = self.product_search_input.text().strip().lower()
+            if q:
+                products = [p for p in products
+                            if q in (p.goods_name or "").lower() or q in str(p.goods_id)]
+
         self.product_table.setRowCount(len(products))
 
         for row, product in enumerate(products):
@@ -885,6 +910,13 @@ class KnowledgeUI(QWidget):
             cs_list = self.knowledge_service.list_customer_service_with_disabled(self.current_shop_id)
         else:
             cs_list = self.knowledge_service.filter_customer_service_by_tag(self.current_shop_id, current_selection)
+
+        # 搜索过滤
+        if hasattr(self, 'cs_search_input'):
+            q = self.cs_search_input.text().strip().lower()
+            if q:
+                cs_list = [c for c in cs_list
+                           if q in (c.title or "").lower() or q in (c.content or "").lower()]
 
         self.cs_table.setRowCount(len(cs_list))
 
@@ -1290,6 +1322,10 @@ class KnowledgeUI(QWidget):
         """标签筛选变化"""
         self._refresh_cs_table()
 
+    def _on_cs_search_changed(self):
+        """客服知识搜索框文本变化"""
+        self._refresh_cs_table()
+
     def _show_message(self, level: str, content: str):
         """显示消息条"""
         method = getattr(InfoBar, level)
@@ -1505,6 +1541,16 @@ class KnowledgeUI(QWidget):
 
         layout.addWidget(form_group)
 
+        # 搜索栏
+        search_row = QHBoxLayout()
+        self.custom_search_input = LineEdit()
+        self.custom_search_input.setPlaceholderText("搜索标题或内容...")
+        self.custom_search_input.setFixedWidth(300)
+        self.custom_search_input.textChanged.connect(self._on_custom_search_changed)
+        search_row.addWidget(self.custom_search_input)
+        search_row.addStretch()
+        layout.addLayout(search_row)
+
         # --- 已索引条目表格 ---
         self.custom_kb_table = TableWidget()
         self.custom_kb_table.setColumnCount(5)
@@ -1627,11 +1673,23 @@ class KnowledgeUI(QWidget):
         self._show_message("success", f"导入完成：成功 {success} / {len(entries)} 条")
         self._refresh_custom_kb_table()
 
+    def _on_custom_search_changed(self):
+        """自定义知识搜索框文本变化"""
+        self._refresh_custom_kb_table()
+
     def _refresh_custom_kb_table(self):
         """刷新自定义知识表格"""
         if self.current_shop_id is None or not self.custom_kb_service:
             return
         entries = self.custom_kb_service.list_entries(self.current_shop_id)
+
+        # 搜索过滤
+        if hasattr(self, 'custom_search_input'):
+            q = self.custom_search_input.text().strip().lower()
+            if q:
+                entries = [e for e in entries
+                           if q in (e.title or "").lower() or q in (e.content or "").lower()]
+
         self.custom_kb_table.setRowCount(len(entries))
         for row, entry in enumerate(entries):
             item = QTableWidgetItem(str(entry.id))
@@ -1771,9 +1829,12 @@ class KnowledgeUI(QWidget):
     # ===== 知识库全局配置弹窗 =====
 
     def _on_open_config(self):
-        dialog = KnowledgeConfigDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._show_message("success", "知识库配置已保存，重启后全部生效")
+        """跳转到设置页面的知识库配置区域"""
+        main_win = self.window()
+        if hasattr(main_win, 'switchTo') and hasattr(main_win, 'settingInterface'):
+            main_win.switchTo(main_win.settingInterface)
+            QTimer.singleShot(300, lambda: main_win.settingInterface._scroll_to_kb_config())
+            self._show_message("info", "请在设置页面底部配置嵌入模型和重排序模型，保存后重启生效")
 
     # ===== 手动添加产品知识 =====
 

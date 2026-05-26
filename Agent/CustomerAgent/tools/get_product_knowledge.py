@@ -4,8 +4,8 @@
 
 根据商品ID或关键词获取产品详细知识。
 """
-from typing import Optional
-from pydantic import BaseModel, Field, model_validator
+from typing import Optional, Any
+from pydantic import BaseModel, Field, model_validator, field_validator
 from Agent.CustomerAgent.custom.tool_decorator import agent_tool
 
 from database.knowledge_service import KnowledgeService
@@ -20,6 +20,14 @@ class GetProductKnowledgeParams(BaseModel):
     goods_id: Optional[int] = Field(default=None, description="商品ID（精确查询时使用）")
     query: Optional[str] = Field(default=None, description="搜索关键词（模糊搜索时使用，从用户原话提炼核心词）")
     shop_id: int = Field(..., description="店铺ID（必须提供）")
+
+    @field_validator('goods_id', mode='before')
+    @classmethod
+    def coerce_empty_to_none(cls, v: Any) -> Any:
+        """LLM 可能传空字符串 '' 作为 goods_id，转为 None"""
+        if v is None or v == '' or v == 0:
+            return None
+        return v
 
     @model_validator(mode='after')
     def check_at_least_one(self):

@@ -219,6 +219,10 @@ class ProductSyncService:
 
         logger.info(f"商品基本信息保存完成: 成功 {progress.success}, 失败 {progress.failed}")
 
+        # 第一阶段完成后，一次性重建 BM25 索引（避免逐条 O(N²)）
+        self.knowledge_service.rebuild_bm25(shop_db_id, "product")
+        logger.info("产品 BM25 索引已批量重建")
+
         # ================== 第二阶段：并发提取详细知识 ==================
         logger.info("=== 第二阶段：开始并发提取商品详细知识 ===")
         progress.phase = "extracting"
@@ -303,7 +307,9 @@ class ProductSyncService:
         # 运行所有任务
         await asyncio.gather(*tasks)
 
-        logger.info(f"同步完成: 总计 {progress.total}, 成功 {progress.success}, 失败 {progress.failed}")
+        # 第二阶段完成后，再次重建 BM25（含 LLM 提取的新内容）
+        self.knowledge_service.rebuild_bm25(shop_db_id, "product")
+        logger.info(f"同步完成: 总计 {progress.total}, 成功 {progress.success}, 失败 {progress.failed}, BM25 已重建")
         return progress
 
     async def _extract_product_knowledge(

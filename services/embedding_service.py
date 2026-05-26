@@ -57,6 +57,13 @@ class EmbeddingService:
             from config import get_config
             api_key = api_key or get_config("llm.api_key", "")
             api_base = api_base or get_config("llm.api_base", "")
+        # 自动纠正：如果 api_key 填了 URL（常见错误），把它当 api_base
+        if api_key and (api_key.startswith("http://") or api_key.startswith("https://")):
+            logger.warning(f"检测到 api_key 看起来像 URL，已自动纠正: api_key 与 api_base 可能填反了")
+            if not api_base or api_base == api_key:
+                api_base = api_key
+            from config import get_config
+            api_key = get_config("llm.api_key", "")
 
         if not api_base:
             api_base = "https://api.openai.com/v1"

@@ -80,6 +80,8 @@ class MessagePreprocessor:
                 return "[图片消息]"
             elif msg_type == ContextType.VIDEO:
                 return "[视频消息]"
+            elif msg_type == ContextType.EMOTION:
+                return "[表情]—客户发了一个表情"
 
             # 1. 尝试解析为JSON
             parsed = self.safe_parse_json(content)

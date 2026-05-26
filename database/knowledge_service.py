@@ -12,6 +12,8 @@ from datetime import datetime
 from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import Session
 import jieba
+import queue
+import threading
 from utils.logger_loguru import get_logger
 from database.models import Base, ProductKnowledge, CustomerServiceKnowledge, CustomKnowledge, Shop
 from database.db_manager import db_manager
@@ -45,27 +47,59 @@ class KnowledgeService:
         self.hybrid_retriever = hybrid_retriever
         self.reranker_service = reranker_service
         self.vector_index_sync = vector_index_sync
-        logger.info("KnowledgeService 初始化成功，复用全局数据库连接")
+
+        # 启动诊断
+        if hybrid_retriever and reranker_service:
+            logger.info("KnowledgeService 已就绪 [模式: 混合检索(向量+BM25+RRF) + 重排序]")
+        elif hybrid_retriever:
+            logger.info("KnowledgeService 已就绪 [模式: 混合检索(向量+BM25+RRF), 无重排序]")
+        else:
+            logger.info("KnowledgeService 已就绪 [模式: 传统检索(jieba+SQL LIKE), 向量检索不可用]")
 
     def get_session(self) -> Session:
         """获取数据库会话"""
         return self.session_factory()
 
     def _schedule_async(self, coro):
-        """在后台线程中调度异步任务（适用于 plain-value coroutine）"""
+        """将异步索引任务提交到单一线程执行，避免每个商品开一个线程"""
         if self.vector_index_sync is None:
             return
+        self._ensure_index_worker()
+        self._index_queue.put(coro)
+
+    def _ensure_index_worker(self):
+        """确保索引工作线程已启动（单例，所有索引任务共用）"""
+        if hasattr(self, '_index_thread') and self._index_thread is not None and self._index_thread.is_alive():
+            return
+        self._index_queue = queue.Queue()
+        self._index_thread = threading.Thread(target=self._index_worker, daemon=True)
+        self._index_thread.start()
+        logger.info("向量索引工作线程已启动")
+
+    def _index_worker(self):
+        """单一线程按序处理所有异步索引任务"""
         import asyncio
-        import threading
-        def _run():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        while True:
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
+                coro = self._index_queue.get(timeout=5)
                 loop.run_until_complete(coro)
-                loop.close()
+            except queue.Empty:
+                continue
             except Exception as e:
-                logger.error(f"后台异步任务失败: {e}")
-        threading.Thread(target=_run, daemon=True).start()
+                msg = str(e)
+                if "dimension" in msg.lower() or "expecting" in msg.lower():
+                    logger.error(
+                        f"向量索引维度不匹配，请删除向量库后重新同步。\n"
+                        f"  1. 关闭程序\n"
+                        f"  2. 删除 temp/vector_db 目录\n"
+                        f"  3. 检查 config.json 中 knowledge_base.embedding.dimension 与实际模型输出一致\n"
+                        f"  4. 重启程序并重新同步产品知识\n"
+                        f"  原始错误: {msg}"
+                    )
+                else:
+                    logger.error(f"向量索引后台任务失败: {msg}")
 
     def _reindex_product(self, product):
         if product and self.vector_index_sync:
@@ -437,6 +471,17 @@ class KnowledgeService:
             # 去重
             return sorted(list(set(tags_list)))
 
+    # ========== 批量索引 ==========
+
+    def rebuild_bm25(self, shop_id: int, source_type: str = "product") -> None:
+        """批量同步后重建 BM25 索引（只调用一次，避免逐条 O(N²) 重建）"""
+        if self.vector_index_sync is None:
+            return
+        db_shop_id = self._resolve_shop_id(shop_id)
+        self._schedule_async(
+            self.vector_index_sync.rebuild_bm25_for_shop(source_type, db_shop_id)
+        )
+
     # ========== 检索 ==========
 
     def _resolve_shop_id(self, shop_id: int) -> int:
@@ -533,7 +578,8 @@ class KnowledgeService:
         from config import get_config
 
         alpha = get_config("knowledge_base.hybrid_search_alpha", 0.5)
-        logger.info(f"混合检索开始: query={query[:50]}, shop_id={db_shop_id}, alpha={alpha}")
+        has_rerank = self.reranker_service is not None
+        logger.info(f"混合检索: query={query[:50]}, alpha={alpha}, reranker={'有' if has_rerank else '无'}")
 
         async def _do_search():
             candidates = await self.hybrid_retriever.search(

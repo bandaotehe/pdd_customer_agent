@@ -204,13 +204,10 @@ class VectorIndexSync:
         # 写入向量库
         self._vector_store.add_documents(col_name, ids, embeddings, metadatas, chunks)
 
-        # 重建 BM25 索引（整体重建该 source_type + shop_id 的索引）
-        await self._rebuild_bm25_for_shop(source_type, shop_id)
-
         logger.debug(f"索引已更新: {source_type}:{source_id}, chunks={len(chunks)}")
         return True
 
-    async def _rebuild_bm25_for_shop(self, source_type: str, shop_id: int):
+    async def rebuild_bm25_for_shop(self, source_type: str, shop_id: int):
         """重建某个 source_type + shop_id 的 BM25 索引"""
         col_name = self._collection_name(source_type)
         where = {"shop_id": shop_id}
@@ -235,19 +232,19 @@ class VectorIndexSync:
         self._vector_store.delete_by_filter("product_knowledge", {
             "shop_id": shop_id, "source_id": product_id,
         })
-        await self._rebuild_bm25_for_shop("product", shop_id)
+        await self.rebuild_bm25_for_shop("product", shop_id)
 
     async def remove_customer_service(self, cs_id: int, shop_id: int) -> None:
         self._vector_store.delete_by_filter("customer_service_knowledge", {
             "shop_id": shop_id, "source_id": cs_id,
         })
-        await self._rebuild_bm25_for_shop("customer_service", shop_id)
+        await self.rebuild_bm25_for_shop("customer_service", shop_id)
 
     async def remove_custom_entry(self, entry_id: int, shop_id: int) -> None:
         self._vector_store.delete_by_filter("custom_knowledge", {
             "shop_id": shop_id, "source_id": entry_id,
         })
-        await self._rebuild_bm25_for_shop("custom", shop_id)
+        await self.rebuild_bm25_for_shop("custom", shop_id)
 
     # ===== 查询 =====
 

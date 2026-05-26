@@ -541,6 +541,7 @@ class SettingUI(QFrame):
 
         # 内容容器
         content_container = QWidget()
+        content_container.setObjectName("_setting_scroll_content")
         content_layout = QVBoxLayout(content_container)
         content_layout.setSpacing(20)
         content_layout.setContentsMargins(20, 20, 20, 20)
@@ -733,6 +734,15 @@ class SettingUI(QFrame):
         except Exception as e:
             self.logger.error(f"保存配置失败: {e}")
             QMessageBox.critical(self, "保存失败", f"保存配置时发生错误：{str(e)}")
+
+    def _scroll_to_kb_config(self):
+        """滚动到知识库配置卡片"""
+        wrapper = self.findChild(QWidget, "_setting_scroll_content")
+        if wrapper:
+            scroll = wrapper.parentWidget()
+            if hasattr(scroll, 'verticalScrollBar'):
+                y = self.kb_config_card.mapTo(wrapper, self.kb_config_card.pos()).y()
+                scroll.verticalScrollBar().setValue(max(0, y - 20))
 
     def onResetConfig(self):
         """重置配置"""
