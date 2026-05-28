@@ -102,17 +102,22 @@ class KnowledgeService:
                     logger.error(f"向量索引后台任务失败: {msg}")
 
     def _reindex_product(self, product):
-        if product and self.vector_index_sync:
-            text = product.goods_name or ""
-            if product.extracted_content:
-                text = f"{text}\n{product.extracted_content}"
-            self._schedule_async(
-                self.vector_index_sync.index_raw(
-                    "product", product.id, product.shop_id,
-                    text,
-                    goods_id=product.goods_id,
-                )
+        if not product:
+            return
+        if not self.vector_index_sync:
+            logger.warning(f"vector_index_sync 未注入，跳过向量索引: goods_id={product.goods_id}")
+            return
+        text = product.goods_name or ""
+        if product.extracted_content:
+            text = f"{text}\n{product.extracted_content}"
+        logger.info(f"入向量库: goods_id={product.goods_id}, len={len(text)}")
+        self._schedule_async(
+            self.vector_index_sync.index_raw(
+                "product", product.id, product.shop_id,
+                text,
+                goods_id=product.goods_id,
             )
+        )
 
     def _reindex_cs(self, cs):
         if cs and cs.content and self.vector_index_sync:
@@ -560,6 +565,10 @@ class KnowledgeService:
                 p_cnt = len(final.get("product_knowledge", []))
                 cs_cnt = len(final.get("customer_service_knowledge", []))
                 ck_cnt = len(final.get("custom_knowledge", []))
+                # 向量库无数据时自动降级到 SQL LIKE 检索
+                if p_cnt == 0 and cs_cnt == 0 and ck_cnt == 0:
+                    logger.info("混合检索无结果，自动降级为 SQL 传统检索")
+                    return self._search_legacy(db_shop_id, shop_id, query, limit, result)
                 logger.info(f"search_knowledge 完成: product={p_cnt}, cs={cs_cnt}, custom={ck_cnt}")
                 return final
             except Exception as e:

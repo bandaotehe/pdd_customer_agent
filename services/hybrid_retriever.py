@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import List, Dict, Optional
 
 from services.vector_store import VectorStore, ALL_COLLECTIONS
@@ -59,11 +60,16 @@ class HybridRetriever:
         if source_types is None:
             source_types = ["product", "customer_service", "custom"]
 
+        t0 = time.perf_counter()
+
         # 1. 向量嵌入查询
         query_embedding = await self._embedding.embed_query(query)
+        embed_ms = (time.perf_counter() - t0) * 1000
         if not query_embedding:
             logger.warning("查询嵌入失败，降级为纯 BM25")
             alpha = 0.0
+        else:
+            logger.info(f"嵌入完成: query={query[:30]}, dim={len(query_embedding)}, 耗时={embed_ms:.0f}ms")
 
         # 2. 并行检索
         tasks = []
@@ -71,6 +77,7 @@ class HybridRetriever:
             tasks.append(self._search_single(st, shop_id, query, query_embedding, top_k_per_source, alpha))
 
         all_results = await asyncio.gather(*tasks)
+        search_ms = (time.perf_counter() - t0) * 1000
 
         # 3. 合并 + RRF 融合
         merged = []
@@ -79,6 +86,10 @@ class HybridRetriever:
 
         # 按 final_score 降序排序
         merged.sort(key=lambda x: x.get("final_score", 0), reverse=True)
+        logger.info(f"混合检索完成: query={query[:30]}, 候选={len(merged)}条, 总耗时={search_ms:.0f}ms")
+        if merged:
+            top = merged[0]
+            logger.info(f"  Top1: type={top.get('source_type')} score={top.get('final_score',0):.4f} text={top.get('text','')[:60]}")
         return merged
 
     async def _search_single(

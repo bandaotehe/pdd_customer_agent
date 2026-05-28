@@ -223,6 +223,11 @@ class ProductSyncService:
         self.knowledge_service.rebuild_bm25(shop_db_id, "product")
         logger.info("产品 BM25 索引已批量重建")
 
+        # 释放占内存的大列表，阶段二只需 goods_id + goods_name
+        stage2_items = [(p["goods_id"], p.get("goods_name", f"goods_{p['goods_id']}")) for p in products_to_process]
+        del all_products
+        del products_to_process
+
         # ================== 第二阶段：并发提取详细知识 ==================
         logger.info("=== 第二阶段：开始并发提取商品详细知识 ===")
         progress.phase = "extracting"
@@ -234,13 +239,12 @@ class ProductSyncService:
         from threading import Lock
         counter_lock = Lock()
 
-        async def process_single_product(product: Dict[str, Any]):
+        async def process_single_product(item: tuple):
             """处理单个商品的知识提取"""
             if self.is_cancelled():
                 return
 
-            goods_id = product.get("goods_id")
-            goods_name = product.get("goods_name", f"goods_{goods_id}")
+            goods_id, goods_name = item
 
             # 更新当前处理商品名称
             with counter_lock:
@@ -266,10 +270,10 @@ class ProductSyncService:
 
                 product_info = detail["product_info"]
 
-                # 调用LLM提取知识
-                extracted = await self._extract_product_knowledge(product, product_info)
+                # 直接存储商品详情原始数据
+                extracted = self._format_basic_info(product, product_info)
 
-                # 立即更新到数据库（仅更新提取内容）
+                # 立即更新到数据库
                 self.knowledge_service.update_product_extracted_content(
                     shop_id=shop_db_id,
                     goods_id=goods_id,
@@ -280,7 +284,7 @@ class ProductSyncService:
                 with counter_lock:
                     progress.success += 1
                     progress.current += 1
-                    logger.info(f"商品知识提取成功: {goods_name} (ID: {goods_id})")
+                    logger.info(f"商品信息已保存: {goods_name} (ID: {goods_id})")
                     if progress_callback:
                         progress_callback(progress)
 
@@ -302,7 +306,7 @@ class ProductSyncService:
                     await process_single_product(product)
 
         # 创建所有任务
-        tasks = [process_with_semaphore(product) for product in products_to_process]
+        tasks = [process_with_semaphore(item) for item in stage2_items]
 
         # 运行所有任务
         await asyncio.gather(*tasks)

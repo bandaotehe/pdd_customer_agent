@@ -19,6 +19,7 @@ user_data/
 *.db
 *.db
 config.json
+docs/使用文档.md
 temp/
 .claude/
 

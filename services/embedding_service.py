@@ -112,6 +112,7 @@ class EmbeddingService:
     async def _embed_api(self, texts: List[str]) -> List[List[float]]:
         """通过 API 嵌入"""
         client = self._get_client()
+        logger.info(f"嵌入调用: texts={len(texts)}条, model={self._model_name}")
         try:
             # 分批处理
             all_embeddings = []

@@ -204,7 +204,7 @@ class VectorIndexSync:
         # 写入向量库
         self._vector_store.add_documents(col_name, ids, embeddings, metadatas, chunks)
 
-        logger.debug(f"索引已更新: {source_type}:{source_id}, chunks={len(chunks)}")
+        logger.info(f"向量索引完成: {source_type}:{source_id}, chunks={len(chunks)}, dim={len(embeddings[0]) if embeddings else '?'}")
         return True
 
     async def rebuild_bm25_for_shop(self, source_type: str, shop_id: int):
